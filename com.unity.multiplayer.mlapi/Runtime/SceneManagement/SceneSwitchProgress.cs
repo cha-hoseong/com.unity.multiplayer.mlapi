@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using AsyncOperation = UnityEngine.AsyncOperation;
 
 namespace MLAPI.SceneManagement
 {
@@ -53,7 +52,7 @@ namespace MLAPI.SceneManagement
         internal Guid Guid { get; } = Guid.NewGuid();
 
         private Coroutine m_TimeOutCoroutine;
-        private AsyncOperation m_SceneLoadOperation;
+        private IAsyncSceneOperation m_SceneLoadOperation;
 
         internal SceneSwitchProgress()
         {
@@ -73,7 +72,7 @@ namespace MLAPI.SceneManagement
             CheckCompletion();
         }
 
-        internal void SetSceneLoadOperation(AsyncOperation sceneLoadOperation)
+        internal void SetSceneLoadOperation(IAsyncSceneOperation sceneLoadOperation)
         {
             m_SceneLoadOperation = sceneLoadOperation;
             m_SceneLoadOperation.completed += operation => CheckCompletion();

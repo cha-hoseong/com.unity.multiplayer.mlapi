@@ -27,7 +27,7 @@ namespace MLAPI.SceneManagement
         /// <summary>
         /// Delegate for when a scene switch has been initiated
         /// </summary>
-        public delegate void SceneSwitchStartedDelegate(AsyncOperation operation);
+        public delegate void SceneSwitchStartedDelegate(IAsyncSceneOperation operation);
 
         /// <summary>
         /// Event that is invoked when the scene is switched
@@ -44,6 +44,7 @@ namespace MLAPI.SceneManagement
         internal static readonly Dictionary<uint, string> SceneIndexToString = new Dictionary<uint, string>();
         internal static readonly Dictionary<Guid, SceneSwitchProgress> SceneSwitchProgresses = new Dictionary<Guid, SceneSwitchProgress>();
 
+        private static ISceneLoader sceneLoader;
         private static Scene s_LastScene;
         private static string s_NextSceneName;
         private static bool s_IsSwitching = false;
@@ -68,6 +69,18 @@ namespace MLAPI.SceneManagement
         }
 
         internal static uint CurrentActiveSceneIndex { get; private set; } = 0;
+
+        static NetworkSceneManager()
+        {
+            sceneLoader = new DefaultSceneLoader();
+        }
+
+        public static void ChangeSceneLoader(ISceneLoader loader)
+        {
+            if (loader == null)
+                loader = new DefaultSceneLoader();
+            sceneLoader = loader;
+        }
 
         /// <summary>
         /// Adds a scene during runtime.
@@ -132,11 +145,11 @@ namespace MLAPI.SceneManagement
             IsSpawnedObjectsPendingInDontDestroyOnLoad = true;
 
             // Switch scene
-            AsyncOperation sceneLoad = SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Single);
+            var sceneLoad = sceneLoader.LoadSceneAsync(sceneName, LoadSceneMode.Single);
 
             s_NextSceneName = sceneName;
 
-            sceneLoad.completed += (AsyncOperation asyncOp2) => { OnSceneLoaded(switchSceneProgress.Guid, null); };
+            sceneLoad.completed += operation => { OnSceneLoaded(switchSceneProgress.Guid, null); };
             switchSceneProgress.SetSceneLoadOperation(sceneLoad);
             OnSceneSwitchStarted?.Invoke(sceneLoad);
 
@@ -165,11 +178,12 @@ namespace MLAPI.SceneManagement
 
             string sceneName = SceneIndexToString[sceneIndex];
 
-            var sceneLoad = SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Single);
+            //var sceneLoad = SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Single);
+            var sceneLoad = sceneLoader.LoadSceneAsync(sceneName, LoadSceneMode.Single);
 
             s_NextSceneName = sceneName;
 
-            sceneLoad.completed += asyncOp2 => OnSceneLoaded(switchSceneGuid, objectStream);
+            sceneLoad.completed += operation => OnSceneLoaded(switchSceneGuid, objectStream);
             OnSceneSwitchStarted?.Invoke(sceneLoad);
         }
 
@@ -196,16 +210,20 @@ namespace MLAPI.SceneManagement
             CurrentActiveSceneIndex = SceneNameToIndex[sceneName];
 
             IsSpawnedObjectsPendingInDontDestroyOnLoad = true;
-            SceneManager.LoadScene(sceneName);
+            // SceneManager.LoadScene(sceneName);
+            var sceneLoad = sceneLoader.LoadSceneAsync(sceneName, LoadSceneMode.Single);
 
-            using (var buffer = PooledNetworkBuffer.Get())
-            using (var writer = PooledNetworkWriter.Get(buffer))
+            sceneLoad.completed += operation =>
             {
-                writer.WriteByteArray(switchSceneGuid.ToByteArray());
-                InternalMessageSender.Send(NetworkManager.Singleton.ServerClientId, NetworkConstants.CLIENT_SWITCH_SCENE_COMPLETED, NetworkChannel.Internal, buffer);
-            }
+                using (var buffer = PooledNetworkBuffer.Get())
+                using (var writer = PooledNetworkWriter.Get(buffer))
+                {
+                    writer.WriteByteArray(switchSceneGuid.ToByteArray());
+                    InternalMessageSender.Send(NetworkManager.Singleton.ServerClientId, NetworkConstants.CLIENT_SWITCH_SCENE_COMPLETED, NetworkChannel.Internal, buffer);
+                }
 
-            s_IsSwitching = false;
+                s_IsSwitching = false;
+            };   
         }
 
         private static void OnSceneLoaded(Guid switchSceneGuid, Stream objectStream)
